@@ -1,0 +1,16 @@
+Analysis & Synthesis Status : Successful - Sun Dec 15 00:29:21 2024
+Quartus Prime Version : 18.1.0 Build 625 09/12/2018 SJ Lite Edition
+Revision Name : Prime_Finder_8bit_Group41
+Top-level Entity Name : Top_8bit_Group41
+Family : MAX 10
+Total logic elements : 660
+    Total combinational functions : 579
+    Dedicated logic registers : 207
+Total registers : 207
+Total pins : 60
+Total virtual pins : 0
+Total memory bits : 0
+Embedded Multiplier 9-bit elements : 0
+Total PLLs : 0
+UFM blocks : 0
+ADC blocks : 0
