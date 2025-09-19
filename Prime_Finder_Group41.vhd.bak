@@ -1,0 +1,216 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+
+entity Prime_Finder_Group41 is
+    Port (
+        SW : in STD_LOGIC_VECTOR(9 downto 0); -- 10位开关
+        MAX10_CLK1_50 : in std_logic;
+        LEDR : out STD_LOGIC_VECTOR(1 downto 0);
+        HEX0, HEX1, HEX4, HEX5 : out STD_LOGIC_VECTOR(7 downto 0)
+    );
+end entity;
+
+architecture Behavioral of Prime_Finder_Group41 is
+
+    -- 引入除法器和显示器组件
+    component LongDivision_8bit_Group41 is
+        port (
+            Dividend  : in  std_logic_vector(7 downto 0);
+            Divisor   : in  std_logic_vector(7 downto 0);
+            Load      : in  std_logic;
+            CLK       : in  std_logic;
+            Quotient  : out std_logic_vector(7 downto 0);
+            Remainder : out std_logic_vector(7 downto 0)
+        );
+    end component;
+
+    component BIN2SEG_3DIGIT_Group41 is
+        Port (
+            binary_input : in  STD_LOGIC_VECTOR(7 downto 0);
+            CLK          : in  STD_LOGIC;
+            Load         : in  STD_LOGIC;
+            hex2         : out STD_LOGIC_VECTOR(7 downto 0); -- 百位
+            hex1         : out STD_LOGIC_VECTOR(7 downto 0); -- 十位
+            hex0         : out STD_LOGIC_VECTOR(7 downto 0)  -- 个位
+        );
+    end component;
+
+    -- 内部信号声明
+    signal CLK_internal : STD_LOGIC;
+    signal current_divisor : std_logic_vector(7 downto 0) := "00000010"; -- 初始除数为2
+    signal Q_prime, R_prime : std_logic_vector(7 downto 0) := (others => '0');
+    signal is_prime, prime_flag : STD_LOGIC := '0';
+
+    -- 除法器实例信号
+    signal Dividend_input, Divisor_input : std_logic_vector(7 downto 0) := "00000000";
+    signal Quotient_display_100 : std_logic_vector(7 downto 0) := "00000000";
+    signal Remainder_display_100 : std_logic_vector(7 downto 0) := "00000000";
+    signal Quotient_display_10 : std_logic_vector(7 downto 0) := "00000000";
+    signal Remainder_display_10 : std_logic_vector(7 downto 0) := "00000000";
+
+    -- 质数判断计数器
+    signal Counter : integer := 2; -- 从2开始检查
+
+    -- 显示器实例信号
+    signal hex2_decoded : std_logic_vector(7 downto 0) := "11000000"; -- 百位
+    signal hex1_decoded : std_logic_vector(7 downto 0) := "11000000"; -- 十位
+    signal hex0_decoded : std_logic_vector(7 downto 0) := "11000000"; -- 个位
+
+    -- 状态机定义
+    type STATE_TYPE is (IDLE, DIVIDE_BY_100, WAIT_DIVIDE_BY_100, DIVIDE_BY_10, WAIT_DIVIDE_BY_10, CHECK_PRIME, DONE_STATE);
+    signal state : STATE_TYPE := IDLE;
+
+begin
+    -- 内部时钟信号连接
+    CLK_internal <= MAX10_CLK1_50;
+
+    -- 根据SW9和SW8加载被除数或除数
+    process(CLK_internal)
+    begin
+        if rising_edge(CLK_internal) then
+            if SW(8) = '1' then -- SW8 = 1时加载数据
+                if SW(9) = '0' then
+                    -- SW9 = 0，加载被除数
+                    Dividend_input <= SW(7 downto 0);
+                    Divisor_input <= "00000000"; -- 清零除数输入
+                    LEDR(1) <= '0'; -- LEDR(1)用于指示被除数加载
+                else
+                    -- SW9 = 1，加载除数
+                    Divisor_input <= SW(7 downto 0);
+                    Dividend_input <= "00000000"; -- 清零被除数输入
+                    LEDR(1) <= '1'; -- LEDR(1)用于指示除数加载
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- 实例化显示组件
+    Display : BIN2SEG_3DIGIT_Group41
+        port map (
+            binary_input => Dividend_input, -- 被除数或除数
+            CLK          => CLK_internal,
+            Load         => SW(8),
+            hex2         => HEX5, -- 百位
+            hex1         => HEX1, -- 十位
+            hex0         => HEX0  -- 个位
+        );
+
+    -- 状态机过程
+    process(CLK_internal)
+    begin
+        if rising_edge(CLK_internal) then
+            case state is
+                when IDLE =>
+                    if SW(8) = '1' then
+                        if SW(9) = '0' then
+                            state <= DIVIDE_BY_100; -- 加载被除数后，开始除以100
+                        else
+                            state <= CHECK_PRIME; -- 加载除数后，直接进行质数检查
+                        end if;
+                    else
+                        state <= IDLE;
+                    end if;
+
+                when DIVIDE_BY_100 =>
+                    -- 等待第一个除法器完成
+                    state <= WAIT_DIVIDE_BY_100;
+
+                when WAIT_DIVIDE_BY_100 =>
+                    state <= DIVIDE_BY_10;
+
+                when DIVIDE_BY_10 =>
+                    -- 等待第二个除法器完成
+                    state <= WAIT_DIVIDE_BY_10;
+
+                when WAIT_DIVIDE_BY_10 =>
+                    state <= CHECK_PRIME;
+
+                when CHECK_PRIME =>
+                    -- 进入质数检查状态
+                    if unsigned(Dividend_input) < 2 then
+                        is_prime <= '0'; -- 0和1不是质数
+                        state <= DONE_STATE;
+                    else
+                        -- 初始化质数标志和计数器
+                        is_prime <= '1';
+                        prime_flag <= '1';
+                        Counter <= 2;
+                        state <= DIVIDE_BY_10; -- 开始质数检查
+                    end if;
+
+                when DONE_STATE =>
+                    state <= DONE_STATE;
+
+                when others =>
+                    state <= IDLE;
+            end case;
+        end if;
+    end process;
+
+    -- 提取百位、十位和个位数字
+    process(state, Quotient_display_100, Remainder_display_100, Quotient_display_10, Remainder_display_10)
+    begin
+        if state = DONE_STATE then
+            -- 百位数字
+            if unsigned(Quotient_display_100) > 9 then
+                hex2_decoded <= SEG7(9); -- 超过9，设置为9
+            else
+                hex2_decoded <= SEG7(to_integer(unsigned(Quotient_display_100(3 downto 0))));
+            end if;
+
+            -- 十位数字
+            if unsigned(Quotient_display_10) > 9 then
+                hex1_decoded <= SEG7(9); -- 超过9，设置为9
+            else
+                hex1_decoded <= SEG7(to_integer(unsigned(Quotient_display_10(3 downto 0))));
+            end if;
+
+            -- 个位数字
+            if unsigned(Remainder_display_10) > 9 then
+                hex0_decoded <= SEG7(9); -- 超过9，设置为9
+            else
+                hex0_decoded <= SEG7(to_integer(unsigned(Remainder_display_10(3 downto 0))));
+            end if;
+        else
+            hex2_decoded <= "11000000"; -- 默认显示0
+            hex1_decoded <= "11000000"; -- 默认显示0
+            hex0_decoded <= "11000000"; -- 默认显示0
+        end if;
+    end process;
+
+    -- 将解码后的值赋给输出端口
+    HEX5 <= hex2_decoded;
+    HEX1 <= hex1_decoded;
+    HEX0 <= hex0_decoded;
+
+    -- 质数判断逻辑（简单判断是否能被Counter整除）
+    process(CLK_internal)
+    begin
+        if rising_edge(CLK_internal) then
+            if state = DIVIDE_BY_10 then
+                if Counter < unsigned(Dividend_input) then
+                    if (unsigned(Dividend_input) mod Counter) = 0 then
+                        is_prime <= '0'; -- 能被整除，不是质数
+                        state <= DONE_STATE;
+                    else
+                        if Counter < unsigned(Dividend_input) - 1 then
+                            Counter <= Counter + 1;
+                        else
+                            is_prime <= '1'; -- 不能被任何数整除，是质数
+                            state <= DONE_STATE;
+                        end if;
+                    end if;
+                else
+                    is_prime <= '1'; -- 不能被任何数整除，是质数
+                    state <= DONE_STATE;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- 质数标志输出
+    LEDR(0) <= is_prime;
+
+end architecture;

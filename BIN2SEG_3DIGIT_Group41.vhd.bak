@@ -1,0 +1,222 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+
+entity BIN2SEG_3DIGIT_Group41 is
+    Port (
+        binary_input : in  STD_LOGIC_VECTOR(7 downto 0);
+        CLK          : in  STD_LOGIC;
+        Load         : in  STD_LOGIC;
+        hex2         : out STD_LOGIC_VECTOR(7 downto 0); -- 百位
+        hex1         : out STD_LOGIC_VECTOR(7 downto 0); -- 十位
+        hex0         : out STD_LOGIC_VECTOR(7 downto 0)  -- 个位
+    );
+end BIN2SEG_3DIGIT_Group41;
+
+architecture Behavioral of BIN2SEG_3DIGIT_Group41 is
+
+    -- 7段显示编码表
+    type SEG7_ARRAY is array (0 to 9) of STD_LOGIC_VECTOR(7 downto 0);
+    constant SEG7 : SEG7_ARRAY := (
+        "11000000", -- 0
+        "11111001", -- 1
+        "10100100", -- 2
+        "10110000", -- 3
+        "10011001", -- 4
+        "10010010", -- 5
+        "10000010", -- 6
+        "11111000", -- 7
+        "10000000", -- 8
+        "10010000"  -- 9
+    );
+
+    -- 信号声明
+    signal Quotient_100 : std_logic_vector(7 downto 0);
+    signal Remainder_100: std_logic_vector(7 downto 0);
+
+    signal Quotient_10  : std_logic_vector(7 downto 0);
+    signal Remainder_10 : std_logic_vector(7 downto 0);
+
+    -- BCD数字
+    signal hundreds_digit : std_logic_vector(3 downto 0);
+    signal tens_digit     : std_logic_vector(3 downto 0);
+    signal ones_digit     : std_logic_vector(3 downto 0);
+
+    -- 7段显示解码信号
+    signal hex2_decoded : std_logic_vector(7 downto 0) := "11000000"; -- 默认显示0
+    signal hex1_decoded : std_logic_vector(7 downto 0) := "11000000"; -- 默认显示0
+    signal hex0_decoded : std_logic_vector(7 downto 0) := "11000000"; -- 默认显示0
+
+    -- 状态机定义
+    type STATE_TYPE is (IDLE, DIVIDE_BY_100, WAIT_DIVIDE_BY_100, DIVIDE_BY_10, WAIT_DIVIDE_BY_10, DONE_STATE);
+    signal state : STATE_TYPE := IDLE;
+
+    -- 实例化两个除法器
+    component LongDivision_8bit_Group41 is
+        port (
+            Dividend  : in  std_logic_vector(7 downto 0);
+            Divisor   : in  std_logic_vector(7 downto 0);
+            Load      : in  std_logic;
+            CLK       : in  std_logic;
+            Quotient  : out std_logic_vector(7 downto 0);
+            Remainder : out std_logic_vector(7 downto 0)
+        );
+    end component;
+
+begin
+
+    -- 实例化第一个除法器，用于除以100
+    Divisor_100 : LongDivision_8bit_Group41
+        port map (
+            Dividend  => binary_input,
+            Divisor   => "01100100", -- 100的二进制表示
+            Load      => (state = IDLE) ? '1' : '0',
+            CLK       => CLK,
+            Quotient  => Quotient_100,
+            Remainder => Remainder_100
+        );
+
+    -- 实例化第二个除法器，用于除以10
+    Divisor_10 : LongDivision_8bit_Group41
+        port map (
+            Dividend  => Remainder_100,
+            Divisor   => "00001010", -- 10的二进制表示
+            Load      => (state = DIVIDE_BY_10) ? '1' : '0',
+            CLK       => CLK,
+            Quotient  => Quotient_10,
+            Remainder => Remainder_10
+        );
+
+    -- 状态机过程
+    process(CLK)
+    begin
+        if rising_edge(CLK) then
+            case state is
+                when IDLE =>
+                    if Load = '1' then
+                        state <= DIVIDE_BY_100;
+                    else
+                        state <= IDLE;
+                    end if;
+
+                when DIVIDE_BY_100 =>
+                    if (Quotient_100 /= (others => '0')) or (Remainder_100 /= (others => '0')) then
+                        state <= WAIT_DIVIDE_BY_100;
+                    else
+                        state <= WAIT_DIVIDE_BY_100;
+                    end if;
+
+                when WAIT_DIVIDE_BY_100 =>
+                    state <= DIVIDE_BY_10;
+
+                when DIVIDE_BY_10 =>
+                    if (Quotient_10 /= (others => '0')) or (Remainder_10 /= (others => '0')) then
+                        state <= WAIT_DIVIDE_BY_10;
+                    else
+                        state <= WAIT_DIVIDE_BY_10;
+                    end if;
+
+                when WAIT_DIVIDE_BY_10 =>
+                    state <= DONE_STATE;
+
+                when DONE_STATE =>
+                    state <= DONE_STATE;
+
+                when others =>
+                    state <= IDLE;
+            end case;
+        end if;
+    end process;
+
+    -- 提取百位、十位和个位数字
+    process(state, Quotient_100, Remainder_100, Quotient_10, Remainder_10)
+    begin
+        if state = DONE_STATE then
+            -- 百位
+            if unsigned(Quotient_100) > 9 then
+                hundreds_digit <= "1001"; -- 超过9，显示9
+            else
+                hundreds_digit <= Quotient_100(3 downto 0);
+            end if;
+
+            -- 十位
+            if unsigned(Quotient_10) > 9 then
+                tens_digit <= "1001"; -- 超过9，显示9
+            else
+                tens_digit <= Quotient_10(3 downto 0);
+            end if;
+
+            -- 个位
+            if unsigned(Remainder_10) > 9 then
+                ones_digit <= "1001"; -- 超过9，显示9
+            else
+                ones_digit <= Remainder_10(3 downto 0);
+            end if;
+        else
+            hundreds_digit <= "0000";
+            tens_digit     <= "0000";
+            ones_digit     <= "0000";
+        end if;
+    end process;
+
+    -- 百位数字解码
+    process(hundreds_digit)
+    begin
+        case hundreds_digit is
+            when "0000" => hex2_decoded <= SEG7(0);
+            when "0001" => hex2_decoded <= SEG7(1);
+            when "0010" => hex2_decoded <= SEG7(2);
+            when "0011" => hex2_decoded <= SEG7(3);
+            when "0100" => hex2_decoded <= SEG7(4);
+            when "0101" => hex2_decoded <= SEG7(5);
+            when "0110" => hex2_decoded <= SEG7(6);
+            when "0111" => hex2_decoded <= SEG7(7);
+            when "1000" => hex2_decoded <= SEG7(8);
+            when "1001" => hex2_decoded <= SEG7(9);
+            when others => hex2_decoded <= "11111111"; -- 显示错误或熄灭
+        end case;
+    end process;
+
+    -- 十位数字解码
+    process(tens_digit)
+    begin
+        case tens_digit is
+            when "0000" => hex1_decoded <= SEG7(0);
+            when "0001" => hex1_decoded <= SEG7(1);
+            when "0010" => hex1_decoded <= SEG7(2);
+            when "0011" => hex1_decoded <= SEG7(3);
+            when "0100" => hex1_decoded <= SEG7(4);
+            when "0101" => hex1_decoded <= SEG7(5);
+            when "0110" => hex1_decoded <= SEG7(6);
+            when "0111" => hex1_decoded <= SEG7(7);
+            when "1000" => hex1_decoded <= SEG7(8);
+            when "1001" => hex1_decoded <= SEG7(9);
+            when others => hex1_decoded <= "11111111"; -- 显示错误或熄灭
+        end case;
+    end process;
+
+    -- 个位数字解码
+    process(ones_digit)
+    begin
+        case ones_digit is
+            when "0000" => hex0_decoded <= SEG7(0);
+            when "0001" => hex0_decoded <= SEG7(1);
+            when "0010" => hex0_decoded <= SEG7(2);
+            when "0011" => hex0_decoded <= SEG7(3);
+            when "0100" => hex0_decoded <= SEG7(4);
+            when "0101" => hex0_decoded <= SEG7(5);
+            when "0110" => hex0_decoded <= SEG7(6);
+            when "0111" => hex0_decoded <= SEG7(7);
+            when "1000" => hex0_decoded <= SEG7(8);
+            when "1001" => hex0_decoded <= SEG7(9);
+            when others => hex0_decoded <= "11111111"; -- 显示错误或熄灭
+        end case;
+    end process;
+
+    -- 将解码后的值赋给输出端口
+    hex2 <= hex2_decoded;
+    hex1 <= hex1_decoded;
+    hex0 <= hex0_decoded;
+
+end architecture;
